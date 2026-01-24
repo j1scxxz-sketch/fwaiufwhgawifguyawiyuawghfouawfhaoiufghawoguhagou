@@ -37,10 +37,11 @@ local Cfg = {
         Style = "line",
         Material = "Neon"
     },
-    monitoring = {
+monitoring = {
         last_damage = {},
         last_hit_time = 0,
         hit_cooldown = 0.1,
+        PreviousAmmo = nil,
         ShotgunWeapons = { 
             ["[Double-Barrel SG]"] = true, 
             ["[DoubleBarrel]"] = true, 
@@ -330,19 +331,70 @@ local function TriggerEffects(player, hitPosition)
     end
 end
 
+local TOOLS = {
+    "[Revolver]",
+    "[DoubleBarrel]",
+    "[TacticalShotgun]",
+    "[SMG]",
+    "[Shotgun]",
+    "[Silencer]"
+}
+
+local function getCurrentAmmo()
+    local char = lp.Character
+    if not char then return nil end
+    
+    for _, toolName in ipairs(TOOLS) do
+        local tool = char:FindFirstChild(toolName)
+        if tool then
+            local script = tool:FindFirstChild("Script")
+            local ammo = script and script:FindFirstChild("Ammo")
+            if ammo and ammo:IsA("IntValue") then
+                return ammo.Value
+            end
+        end
+    end
+    
+    return nil
+end
+
 Services.RunService.Heartbeat:Connect(function()
-    local target = getTarget()
+    local currentAmmo = getCurrentAmmo()
+    
+    -- Check if ammo decreased (shot was fired)
+    if currentAmmo and Cfg.monitoring.PreviousAmmo and currentAmmo < Cfg.monitoring.PreviousAmmo then
+        local target = getTarget()
+        
+        -- Check nearby players for health decrease
+        for _, player in ipairs(Services.Players:GetPlayers()) do
+            if player ~= lp and player.Character and player == target then
+                local hum = player.Character:FindFirstChildOfClass("Humanoid")
+                if hum then
+                    local currentHealth = hum.Health
+                    local previousHealth = Cfg.monitoring.last_damage[player]
+                    
+                    -- If health decreased, trigger effects
+                    if previousHealth and currentHealth < previousHealth then
+                        local hitPart = player.Character:FindFirstChild("Head") or player.Character:FindFirstChild("HumanoidRootPart")
+                        if hitPart then 
+                            TriggerEffects(player, hitPart.Position)
+                        end
+                        break -- Only trigger once per shot
+                    end
+                end
+            end
+        end
+    end
+    
+    -- Update previous ammo
+    Cfg.monitoring.PreviousAmmo = currentAmmo
+    
+    -- Update all player health tracking
     for _, player in ipairs(Services.Players:GetPlayers()) do
         if player ~= lp and player.Character then
             local hum = player.Character:FindFirstChildOfClass("Humanoid")
             if hum then
-                local cur = hum.Health
-                local prev = Cfg.monitoring.last_damage[player] or cur
-                if cur < prev and (prev - cur) >= 1 and player == target then
-                    local hitPart = player.Character:FindFirstChild("Head") or player.Character:FindFirstChild("HumanoidRootPart")
-                    if hitPart then TriggerEffects(player, hitPart.Position) end
-                end
-                Cfg.monitoring.last_damage[player] = cur
+                Cfg.monitoring.last_damage[player] = hum.Health
             end
         end
     end
